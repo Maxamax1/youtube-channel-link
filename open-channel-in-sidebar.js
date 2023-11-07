@@ -5,6 +5,9 @@
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=youtube.com
+// @updateurl    https://github.com/Maxamax1/youtube-channel-link/raw/main/open-channel-in-sidebar.js
+// @downloadURL  https://github.com/Maxamax1/youtube-channel-link/raw/main/open-channel-in-sidebar.js
 // @grant        none
 // ==/UserScript==
 
