@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0
+// @version      1.0.1
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -61,7 +61,7 @@
     document.addEventListener('mouseover', function (event) {
         var target = event.target;
         //console.log('Detected hover:', target.tagName + " " + target.id);
-        if (target.tagName === 'YT-FORMATTED-STRING' && !target.classList.contains('yt-chip-cloud-chip-renderer')) {
+        if (target.tagName === 'YT-FORMATTED-STRING' && target.classList.contains('ytd-channel-name')) {
             var anchorElement = target.closest('a');
             if (!(anchorElement.dataset.originalHref)) {
                 // Save the original href
@@ -112,7 +112,7 @@
         var target = event.target;
 
         // Check if the target element is a "yt-formatted-string"
-        if (target.tagName === 'YT-FORMATTED-STRING' && !target.classList.contains('yt-chip-cloud-chip-renderer')) {
+        if (target.tagName === 'YT-FORMATTED-STRING' && target.classList.contains('ytd-channel-name')) {
             // Find the closest "a" ancestor of the "yt-formatted-string" element
             var anchorElement = target.closest('a');
 
