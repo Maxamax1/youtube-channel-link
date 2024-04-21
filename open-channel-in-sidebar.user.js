@@ -12,6 +12,11 @@
 // ==/UserScript==
 
 (function () {
+    
+    if (!(window.location.href.indexOf("youtube") > -1)) {
+        return;
+    }
+
     'use strict';
     // get your api key here https://console.cloud.google.com/apis/api/youtube.googleapis.com/
     function getapikey() {
