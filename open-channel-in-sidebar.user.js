@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0.4
+// @version      1.0.5
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -9,6 +9,7 @@
 // @updateurl    https://github.com/Maxamax1/youtube-channel-link/raw/main/open-channel-in-sidebar.user.js
 // @downloadURL  https://github.com/Maxamax1/youtube-channel-link/raw/main/open-channel-in-sidebar.user.js
 // @grant        none
+// @noframes
 // ==/UserScript==
 
 (function () {
