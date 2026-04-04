@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0.5
+// @version      1.0.6
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -19,6 +19,32 @@
     }
 
     'use strict';
+
+    /** Sidebar “Up next”: channel row is span under yt-content-metadata-view-model (first row). */
+    function isSidebarChannelNameTarget(el) {
+        if (!el) return false;
+        if (el.tagName === 'YT-FORMATTED-STRING' && el.classList.contains('ytd-channel-name')) {
+            return true;
+        }
+        if (el.tagName !== 'SPAN') return false;
+        const meta = el.closest('yt-content-metadata-view-model');
+        if (!meta) return false;
+        const firstRow = meta.querySelector(':scope > div');
+        return !!(firstRow && firstRow.contains(el));
+    }
+
+    /** Video watch URL lives on the lockup anchor; channel name span may sit outside that a. */
+    function getSidebarVideoAnchor(el) {
+        const direct = el.closest('a');
+        if (direct && /[?&]v=/.test(direct.href)) return direct;
+        const lockup = el.closest('yt-lockup-view-model');
+        if (lockup) {
+            const link = lockup.querySelector('a[href*="watch?v="]');
+            if (link) return link;
+        }
+        return direct || null;
+    }
+
     // get your api key here https://console.cloud.google.com/apis/api/youtube.googleapis.com/
     function getapikey() {
         const ITEM_KEY = 'YOUTUBE_API_KEY';
@@ -67,8 +93,9 @@
     document.addEventListener('mouseover', function (event) {
         var target = event.target;
         //console.log('Detected hover:', target.tagName + " " + target.id);
-        if (target.tagName === 'YT-FORMATTED-STRING' && target.classList.contains('ytd-channel-name')) {
-            var anchorElement = target.closest('a');
+        if (isSidebarChannelNameTarget(target)) {
+            var anchorElement = getSidebarVideoAnchor(target);
+            if (!anchorElement) return;
             if (!(anchorElement.dataset.originalHref)) {
                 // Save the original href
                 anchorElement.dataset.originalHref = anchorElement.href;
@@ -79,9 +106,8 @@
             target.onclick = function (ev) {
                 ev.preventDefault();
                 ev.stopPropagation();
-                var target1 = ev.target;
-                var anchorElement1 = target1.closest('a');
-                window.location.href = anchorElement1.href;
+                var anchorElement1 = getSidebarVideoAnchor(ev.target);
+                if (anchorElement1) window.location.href = anchorElement1.href;
             }
             if (!(anchorElement.dataset.newHref)) {
                 getChannelURL(anchorElement);
@@ -98,14 +124,10 @@
     document.addEventListener('mouseout', function (event) {
         var target = event.target;
 
-        // Check if the target element is a "yt-formatted-string"
-        if (target.tagName === 'YT-FORMATTED-STRING') {
-            // Find the closest "a" ancestor of the "yt-formatted-string" element
-            var anchorElement = target.closest('a');
+        if (isSidebarChannelNameTarget(target)) {
+            var anchorElement = getSidebarVideoAnchor(target);
 
-            // Check if an "a" element is found and has a dataset.originalHref attribute
             if (anchorElement && anchorElement.dataset.originalHref) {
-                // Restore the original href
                 anchorElement.href = anchorElement.dataset.originalHref;
 
                 // Remove the dataset.originalHref attribute
@@ -117,10 +139,8 @@
     document.addEventListener('click', function (event) {
         var target = event.target;
 
-        // Check if the target element is a "yt-formatted-string"
-        if (target.tagName === 'YT-FORMATTED-STRING' && target.classList.contains('ytd-channel-name')) {
-            // Find the closest "a" ancestor of the "yt-formatted-string" element
-            var anchorElement = target.closest('a');
+        if (isSidebarChannelNameTarget(target)) {
+            var anchorElement = getSidebarVideoAnchor(target);
 
             // Check if an "a" element is found and has a dataset.originalHref attribute
             if (anchorElement && anchorElement.dataset.originalHref) {
