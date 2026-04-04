@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0.7
+// @version      1.0.8
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -20,58 +20,55 @@
 
     'use strict';
 
-    /** Sidebar “Up next”: channel name span — see lockup path with .yt-lockup-metadata-view-model__text-container. */
-    const CHANNEL_SPAN_MATCH_SELECTORS = [
-        'yt-lockup-metadata-view-model .yt-lockup-metadata-view-model__text-container yt-content-metadata-view-model > div:nth-child(1) > span',
-        '#contents yt-lockup-metadata-view-model .yt-lockup-metadata-view-model__text-container yt-content-metadata-view-model > div:nth-child(1) > span',
-        'yt-lockup-view-model yt-content-metadata-view-model > div:nth-child(1) > span',
-    ];
-
-    function matchesChannelSpanSelectors(el) {
-        if (!el || el.tagName !== 'SPAN') return false;
-        for (let i = 0; i < CHANNEL_SPAN_MATCH_SELECTORS.length; i++) {
-            try {
-                if (el.matches(CHANNEL_SPAN_MATCH_SELECTORS[i])) return true;
-            } catch (e) { /* ignore */ }
+    /** First row under yt-content-metadata-view-model (light DOM or shadow). */
+    function getFirstContentMetadataRow(meta) {
+        if (!meta) return null;
+        var row = meta.querySelector('.ytContentMetadataViewModelMetadataRow');
+        if (row) return row;
+        if (meta.shadowRoot) {
+            return meta.shadowRoot.querySelector('.ytContentMetadataViewModelMetadataRow');
         }
-        return false;
+        return null;
     }
 
-    /** Structural match (works when :matches/#contents fails across shadow boundaries). */
-    function isChannelSpanByStructure(el) {
-        if (!el || el.tagName !== 'SPAN') return false;
-        const meta = el.closest('yt-content-metadata-view-model');
-        if (!meta) return false;
-        const lockupMeta = el.closest('yt-lockup-metadata-view-model');
-        if (!lockupMeta) return false;
-        const textBox = lockupMeta.querySelector('.yt-lockup-metadata-view-model__text-container');
-        if (!textBox || !textBox.contains(meta)) return false;
-        const firstRow = meta.querySelector(':scope > div:nth-child(1)');
-        return !!(firstRow && firstRow.contains(el));
-    }
-
+    /**
+     * New sidebar lockup: channel name is the span in the first .ytContentMetadataViewModelMetadataRow
+     * (second row = views • date; those spans share the same classes — only first row counts).
+     */
     function isSidebarChannelNameTarget(el) {
         if (!el) return false;
         if (el.tagName === 'YT-FORMATTED-STRING' && el.classList.contains('ytd-channel-name')) {
             return true;
         }
-        return matchesChannelSpanSelectors(el) || isChannelSpanByStructure(el);
+        if (el.tagName !== 'SPAN') return false;
+        if (!el.closest('yt-lockup-view-model')) return false;
+
+        var row = el.closest('.ytContentMetadataViewModelMetadataRow');
+        if (!row) return false;
+
+        var meta = el.closest('yt-content-metadata-view-model');
+        if (!meta) return false;
+
+        var firstRow = getFirstContentMetadataRow(meta);
+        return !!(firstRow && firstRow === row && row.contains(el));
     }
 
-    /** Video watch/shorts URL on the lockup; channel span is often outside the same anchor. */
+    /** Watch URL: thumbnail or title link on the lockup (channel text has no wrapping anchor). */
     function getSidebarVideoAnchor(el) {
-        const direct = el.closest('a');
+        var direct = el.closest('a');
         if (direct && (/[?&]v=/.test(direct.href) || /\/shorts\//.test(direct.href))) return direct;
-        const lockup = el.closest('yt-lockup-view-model');
-        if (lockup) {
-            const link =
-                lockup.querySelector('a#video-title[href]') ||
-                lockup.querySelector('a[href*="/watch?v="]') ||
-                lockup.querySelector('a[href*="watch?v="]') ||
-                lockup.querySelector('a[href*="/shorts/"]');
-            if (link) return link;
-        }
-        return direct || null;
+
+        var lockup = el.closest('yt-lockup-view-model');
+        if (!lockup) return direct || null;
+
+        var link =
+            lockup.querySelector('a.yt-lockup-view-model__content-image[href*="watch"]') ||
+            lockup.querySelector('a.yt-lockup-metadata-view-model__title[href]') ||
+            lockup.querySelector('a#video-title[href]') ||
+            lockup.querySelector('a[href*="/watch?v="]') ||
+            lockup.querySelector('a[href*="watch?v="]') ||
+            lockup.querySelector('a[href*="/shorts/"]');
+        return link || direct || null;
     }
 
     function videoIdFromHref(href) {
@@ -96,12 +93,9 @@
           }
     }
     let apikey = getapikey();
-    // Function to extract and display channel URL
-    function getChannelURL(videoElement) {
-
-
-        // Get the video URL
-        var videoURL = videoElement.dataset.originalHref;
+    // Function to extract and display channel URL; optional onReady(url) for click path
+    function getChannelURL(videoElement, onReady) {
+        var videoURL = videoElement.dataset.originalHref || videoElement.href;
 
         var videoID = videoIdFromHref(videoURL);
         if (!videoID) {
@@ -109,21 +103,21 @@
             return;
         }
 
-        // Use the YouTube Data API to fetch video details, including channel ID
         var apiUrl = 'https://www.googleapis.com/youtube/v3/videos?id=' + videoID + '&key=' + apikey + '&part=snippet';
         fetch(apiUrl)
             .then(response => response.json())
             .then(data => {
+                if (!data.items || !data.items[0] || !data.items[0].snippet) {
+                    console.error('open-channel-in-sidebar: no video in API response', data);
+                    return;
+                }
                 var channelID = data.items[0].snippet.channelId;
-
-                // Construct the channel URL
                 var channelURL = 'https://www.youtube.com/channel/' + channelID;
 
-                // Display the channel URL in the console
                 console.log('Channel URL:', channelURL);
-                // Replace the href with your custom link
-                videoElement.href = channelURL; // Replace with your desired URL
+                videoElement.href = channelURL;
                 videoElement.dataset.newHref = channelURL;
+                if (onReady) onReady(channelURL);
             })
             .catch(error => {
                 console.error('Error fetching video details:', error);
@@ -176,22 +170,28 @@
             }
         }
     });
-    // Handle click events on the document
-    document.addEventListener('click', function (event) {
+    function handleChannelNameClick(event) {
         var target = event.target;
+        if (!isSidebarChannelNameTarget(target)) return;
 
-        if (isSidebarChannelNameTarget(target)) {
-            var anchorElement = getSidebarVideoAnchor(target);
+        var anchorElement = getSidebarVideoAnchor(target);
+        if (!anchorElement) return;
 
-            // Check if an "a" element is found and has a dataset.originalHref attribute
-            if (anchorElement && anchorElement.dataset.originalHref) {
-                // Prevent the default behavior (e.g., following the original link)
-                event.preventDefault();
-                event.stopPropagation();
-                console.log('test');
-                // Navigate to your custom URL
-                window.location.href = anchorElement.href;
-            }
+        if (!anchorElement.dataset.originalHref) {
+            anchorElement.dataset.originalHref = anchorElement.href;
         }
-    });
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        if (anchorElement.dataset.newHref) {
+            window.location.href = anchorElement.dataset.newHref;
+        } else {
+            getChannelURL(anchorElement, function (url) {
+                window.location.href = url;
+            });
+        }
+    }
+
+    document.addEventListener('click', handleChannelNameClick, true);
 })();
