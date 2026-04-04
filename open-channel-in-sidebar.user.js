@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0.8
+// @version      1.0.9
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -19,6 +19,35 @@
     }
 
     'use strict';
+
+    var OVERLAY_CLASS = 'ocs-channel-link-overlay';
+
+    var hoverStyle = document.createElement('style');
+    hoverStyle.textContent =
+        '.ytContentMetadataViewModelMetadataRow.ocs-channel-row:hover .ocs-channel-name {' +
+        'text-decoration:underline!important;cursor:pointer!important;' +
+        'color:var(--yt-spec-text-primary,#3ea6ff)!important;' +
+        '}';
+    document.documentElement.appendChild(hoverStyle);
+
+    /** Invisible link over the first metadata row so the browser status bar shows the channel URL. */
+    function ensureChannelOverlay(row, channelURL) {
+        if (!row || !channelURL) return null;
+        row.style.position = 'relative';
+        var a = row.querySelector('a.' + OVERLAY_CLASS);
+        if (!a) {
+            a = document.createElement('a');
+            a.className = OVERLAY_CLASS;
+            a.setAttribute('aria-label', 'Open channel');
+            a.style.cssText =
+                'position:absolute;inset:0;z-index:3;opacity:0;cursor:pointer;' +
+                'pointer-events:none;';
+            row.appendChild(a);
+        }
+        a.href = channelURL;
+        a.style.pointerEvents = 'auto';
+        return a;
+    }
 
     /** First row under yt-content-metadata-view-model (light DOM or shadow). */
     function getFirstContentMetadataRow(meta) {
@@ -93,8 +122,8 @@
           }
     }
     let apikey = getapikey();
-    // Function to extract and display channel URL; optional onReady(url) for click path
-    function getChannelURL(videoElement, onReady) {
+    // Function to extract channel URL; optional onReady(url); channelSpan used for overlay + status bar
+    function getChannelURL(videoElement, onReady, channelSpan) {
         var videoURL = videoElement.dataset.originalHref || videoElement.href;
 
         var videoID = videoIdFromHref(videoURL);
@@ -115,8 +144,9 @@
                 var channelURL = 'https://www.youtube.com/channel/' + channelID;
 
                 console.log('Channel URL:', channelURL);
-                videoElement.href = channelURL;
                 videoElement.dataset.newHref = channelURL;
+                var row = channelSpan && channelSpan.closest('.ytContentMetadataViewModelMetadataRow');
+                if (row) ensureChannelOverlay(row, channelURL);
                 if (onReady) onReady(channelURL);
             })
             .catch(error => {
@@ -124,54 +154,56 @@
             });
     }
 
-    // Listen for mouseover events on video elements
     document.addEventListener('mouseover', function (event) {
         var target = event.target;
-        //console.log('Detected hover:', target.tagName + " " + target.id);
-        if (isSidebarChannelNameTarget(target)) {
-            var anchorElement = getSidebarVideoAnchor(target);
-            if (!anchorElement) return;
-            if (!(anchorElement.dataset.originalHref)) {
-                // Save the original href
-                anchorElement.dataset.originalHref = anchorElement.href;
+        if (!isSidebarChannelNameTarget(target)) return;
 
-            }
-            target.onclick = null;
-            anchorElement.click = null;
-            target.onclick = function (ev) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                var anchorElement1 = getSidebarVideoAnchor(ev.target);
-                if (anchorElement1) window.location.href = anchorElement1.href;
-            }
-            if (!(anchorElement.dataset.newHref)) {
-                getChannelURL(anchorElement);
-            } else {
-                anchorElement.href = anchorElement.dataset.newHref;
-            }
-            //console.log('channel name is: ' + target.textContent + ' ' + anchorElement.href);
-            // When hovering over a video link, get and display the channel URL
+        var anchorElement = getSidebarVideoAnchor(target);
+        if (!anchorElement) return;
 
+        if (!anchorElement.dataset.originalHref) {
+            anchorElement.dataset.originalHref = anchorElement.href;
+        }
+
+        var row = target.closest('.ytContentMetadataViewModelMetadataRow');
+        if (row) {
+            row.classList.add('ocs-channel-row');
+        }
+        target.classList.add('ocs-channel-name');
+
+        if (anchorElement.dataset.newHref) {
+            if (row) ensureChannelOverlay(row, anchorElement.dataset.newHref);
+        } else {
+            getChannelURL(anchorElement, null, target);
         }
     });
 
-    // Listen for mouseout events on the document
     document.addEventListener('mouseout', function (event) {
         var target = event.target;
+        var row;
 
-        if (isSidebarChannelNameTarget(target)) {
-            var anchorElement = getSidebarVideoAnchor(target);
-
-            if (anchorElement && anchorElement.dataset.originalHref) {
-                anchorElement.href = anchorElement.dataset.originalHref;
-
-                // Remove the dataset.originalHref attribute
-                //delete anchorElement.dataset.originalHref;
-            }
+        if (target.classList && target.classList.contains(OVERLAY_CLASS)) {
+            row = target.closest('.ytContentMetadataViewModelMetadataRow');
+            if (!row || row.contains(event.relatedTarget)) return;
+            row.classList.remove('ocs-channel-row');
+            var nameSpan = row.querySelector('span.ocs-channel-name');
+            if (nameSpan) nameSpan.classList.remove('ocs-channel-name');
+            return;
         }
+
+        if (!isSidebarChannelNameTarget(target)) return;
+        row = target.closest('.ytContentMetadataViewModelMetadataRow');
+        if (row) {
+            if (row.contains(event.relatedTarget)) return;
+            row.classList.remove('ocs-channel-row');
+        }
+        target.classList.remove('ocs-channel-name');
     });
     function handleChannelNameClick(event) {
         var target = event.target;
+        if (target.classList && target.classList.contains(OVERLAY_CLASS)) {
+            return;
+        }
         if (!isSidebarChannelNameTarget(target)) return;
 
         var anchorElement = getSidebarVideoAnchor(target);
@@ -187,9 +219,13 @@
         if (anchorElement.dataset.newHref) {
             window.location.href = anchorElement.dataset.newHref;
         } else {
-            getChannelURL(anchorElement, function (url) {
-                window.location.href = url;
-            });
+            getChannelURL(
+                anchorElement,
+                function (url) {
+                    window.location.href = url;
+                },
+                target
+            );
         }
     }
 
