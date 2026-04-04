@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0.9
+// @version      1.1.0
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -82,6 +82,28 @@
         return !!(firstRow && firstRow === row && row.contains(el));
     }
 
+    /**
+     * After the invisible link overlay is on top, mouseover targets the overlay, not the span.
+     * Resolve the same channel row + span for both cases.
+     */
+    function resolveChannelHoverTarget(target) {
+        if (!target) return null;
+        if (target.classList && target.classList.contains(OVERLAY_CLASS)) {
+            var row = target.closest('.ytContentMetadataViewModelMetadataRow');
+            if (!row) return null;
+            var span = row.querySelector('span');
+            if (!span || !isSidebarChannelNameTarget(span)) return null;
+            return { row: row, channelSpan: span };
+        }
+        if (isSidebarChannelNameTarget(target)) {
+            return {
+                row: target.closest('.ytContentMetadataViewModelMetadataRow'),
+                channelSpan: target
+            };
+        }
+        return null;
+    }
+
     /** Watch URL: thumbnail or title link on the lockup (channel text has no wrapping anchor). */
     function getSidebarVideoAnchor(el) {
         var direct = el.closest('a');
@@ -155,26 +177,26 @@
     }
 
     document.addEventListener('mouseover', function (event) {
-        var target = event.target;
-        if (!isSidebarChannelNameTarget(target)) return;
+        var resolved = resolveChannelHoverTarget(event.target);
+        if (!resolved) return;
 
-        var anchorElement = getSidebarVideoAnchor(target);
+        var channelSpan = resolved.channelSpan;
+        var row = resolved.row;
+
+        var anchorElement = getSidebarVideoAnchor(channelSpan);
         if (!anchorElement) return;
 
         if (!anchorElement.dataset.originalHref) {
             anchorElement.dataset.originalHref = anchorElement.href;
         }
 
-        var row = target.closest('.ytContentMetadataViewModelMetadataRow');
-        if (row) {
-            row.classList.add('ocs-channel-row');
-        }
-        target.classList.add('ocs-channel-name');
+        if (row) row.classList.add('ocs-channel-row');
+        channelSpan.classList.add('ocs-channel-name');
 
         if (anchorElement.dataset.newHref) {
             if (row) ensureChannelOverlay(row, anchorElement.dataset.newHref);
         } else {
-            getChannelURL(anchorElement, null, target);
+            getChannelURL(anchorElement, null, channelSpan);
         }
     });
 
