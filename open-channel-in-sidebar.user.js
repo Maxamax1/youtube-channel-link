@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Open Channel from Sidebar
 // @namespace    http://tampermonkey.net
-// @version      1.0.6
+// @version      1.0.7
 // @description  Opens the channel page, when clicking on the creator in the sidebar
 // @author       Maxamax
 // @match        https://www.youtube.com/*
@@ -20,29 +20,67 @@
 
     'use strict';
 
-    /** Sidebar “Up next”: channel row is span under yt-content-metadata-view-model (first row). */
+    /** Sidebar “Up next”: channel name span — see lockup path with .yt-lockup-metadata-view-model__text-container. */
+    const CHANNEL_SPAN_MATCH_SELECTORS = [
+        'yt-lockup-metadata-view-model .yt-lockup-metadata-view-model__text-container yt-content-metadata-view-model > div:nth-child(1) > span',
+        '#contents yt-lockup-metadata-view-model .yt-lockup-metadata-view-model__text-container yt-content-metadata-view-model > div:nth-child(1) > span',
+        'yt-lockup-view-model yt-content-metadata-view-model > div:nth-child(1) > span',
+    ];
+
+    function matchesChannelSpanSelectors(el) {
+        if (!el || el.tagName !== 'SPAN') return false;
+        for (let i = 0; i < CHANNEL_SPAN_MATCH_SELECTORS.length; i++) {
+            try {
+                if (el.matches(CHANNEL_SPAN_MATCH_SELECTORS[i])) return true;
+            } catch (e) { /* ignore */ }
+        }
+        return false;
+    }
+
+    /** Structural match (works when :matches/#contents fails across shadow boundaries). */
+    function isChannelSpanByStructure(el) {
+        if (!el || el.tagName !== 'SPAN') return false;
+        const meta = el.closest('yt-content-metadata-view-model');
+        if (!meta) return false;
+        const lockupMeta = el.closest('yt-lockup-metadata-view-model');
+        if (!lockupMeta) return false;
+        const textBox = lockupMeta.querySelector('.yt-lockup-metadata-view-model__text-container');
+        if (!textBox || !textBox.contains(meta)) return false;
+        const firstRow = meta.querySelector(':scope > div:nth-child(1)');
+        return !!(firstRow && firstRow.contains(el));
+    }
+
     function isSidebarChannelNameTarget(el) {
         if (!el) return false;
         if (el.tagName === 'YT-FORMATTED-STRING' && el.classList.contains('ytd-channel-name')) {
             return true;
         }
-        if (el.tagName !== 'SPAN') return false;
-        const meta = el.closest('yt-content-metadata-view-model');
-        if (!meta) return false;
-        const firstRow = meta.querySelector(':scope > div');
-        return !!(firstRow && firstRow.contains(el));
+        return matchesChannelSpanSelectors(el) || isChannelSpanByStructure(el);
     }
 
-    /** Video watch URL lives on the lockup anchor; channel name span may sit outside that a. */
+    /** Video watch/shorts URL on the lockup; channel span is often outside the same anchor. */
     function getSidebarVideoAnchor(el) {
         const direct = el.closest('a');
-        if (direct && /[?&]v=/.test(direct.href)) return direct;
+        if (direct && (/[?&]v=/.test(direct.href) || /\/shorts\//.test(direct.href))) return direct;
         const lockup = el.closest('yt-lockup-view-model');
         if (lockup) {
-            const link = lockup.querySelector('a[href*="watch?v="]');
+            const link =
+                lockup.querySelector('a#video-title[href]') ||
+                lockup.querySelector('a[href*="/watch?v="]') ||
+                lockup.querySelector('a[href*="watch?v="]') ||
+                lockup.querySelector('a[href*="/shorts/"]');
             if (link) return link;
         }
         return direct || null;
+    }
+
+    function videoIdFromHref(href) {
+        if (!href) return null;
+        var m = href.match(/[?&]v=([^&]+)/);
+        if (m) return m[1];
+        m = href.match(/\/shorts\/([^/?&#]+)/);
+        if (m) return m[1];
+        return null;
     }
 
     // get your api key here https://console.cloud.google.com/apis/api/youtube.googleapis.com/
@@ -65,8 +103,11 @@
         // Get the video URL
         var videoURL = videoElement.dataset.originalHref;
 
-        // Parse the video URL to get the video ID
-        var videoID = videoURL.match(/[?&]v=([^&]+)/)[1];
+        var videoID = videoIdFromHref(videoURL);
+        if (!videoID) {
+            console.error('open-channel-in-sidebar: could not parse video id from', videoURL);
+            return;
+        }
 
         // Use the YouTube Data API to fetch video details, including channel ID
         var apiUrl = 'https://www.googleapis.com/youtube/v3/videos?id=' + videoID + '&key=' + apikey + '&part=snippet';
